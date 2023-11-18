@@ -17,6 +17,6 @@ RUN \
 COPY hello.sh /bin/hello.sh
 COPY teste.sh /bin/teste.sh
 
-RUN /bin/teste.sh
+ENTRYPOINT ["/bin/bash", "/bin/teste.sh"]
 
-CMD ["/bin/hello.sh"]
+#CMD ["/bin/hello.sh"]
