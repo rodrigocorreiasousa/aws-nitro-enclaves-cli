@@ -3,6 +3,8 @@
 
 FROM amazonlinux
 
+ENV AWS_DEFAULT_REGION=eu-west-2
+
 RUN yum install unzip -y
 
 RUN \
@@ -11,8 +13,9 @@ RUN \
     unzip awscliv2.zip && \
     ./aws/install
 
-ENV HELLO="Hello from the enclave side!"
-COPY hello.sh /bin/hello.sh
+#ENV HELLO="Hello from the enclave side!"
+#COPY hello.sh /bin/hello.sh
+COPY teste.sh /bin/teste.sh
 
 #CMD ["/bin/hello.sh"]
-RUN aws s3 ls
+CMD ["/bin/teste.sh"]
