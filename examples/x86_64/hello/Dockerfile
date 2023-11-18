@@ -18,4 +18,4 @@ RUN \
 COPY teste.sh /bin/teste.sh
 
 #CMD ["/bin/hello.sh"]
-CMD ["/bin/teste.sh"]
+ENTRYPOINT ["/bin/teste.sh"]
