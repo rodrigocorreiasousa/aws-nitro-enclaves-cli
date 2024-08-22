@@ -56,8 +56,9 @@ const SOCKETS_DIR_PATH: &str = "/run/nitro_enclaves";
 const BACKTRACE_VAR: &str = "BACKTRACE";
 
 /// All possible errors which may occur.
-#[derive(Debug, Clone, Copy, Hash, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq)]
 pub enum NitroCliErrorEnum {
+    #[default]
     /// Unspecified error (should avoid using it thoughout the code).
     UnspecifiedError = 0,
     /// Error for handling missing arguments.
@@ -180,12 +181,6 @@ pub enum NitroCliErrorEnum {
     EIFSignatureCheckerError,
 }
 
-impl Default for NitroCliErrorEnum {
-    fn default() -> NitroCliErrorEnum {
-        NitroCliErrorEnum::UnspecifiedError
-    }
-}
-
 impl Eq for NitroCliErrorEnum {}
 
 /// The type of commands that can be sent to an enclave process.
@@ -225,7 +220,7 @@ pub enum EnclaveProcessReply {
 }
 
 /// Struct that is passed along the backtrace and accumulates error messages.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct NitroCliFailure {
     /// Main action which was attempted and failed.
     pub action: String,
@@ -572,8 +567,8 @@ mod tests {
 
     const TMP_DIR_STR: &str = "./tmp_sock_dir";
 
-    fn unset_envvar(varname: &String) {
-        let _ = unsafe {
+    fn unset_envvar(varname: &str) {
+        unsafe {
             libc::unsetenv(varname.as_ptr() as *const c_char);
         };
     }

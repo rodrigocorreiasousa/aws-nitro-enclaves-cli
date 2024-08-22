@@ -7,6 +7,7 @@ use std::fs::File;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::process::Command;
 
+use driver_bindings::bindings::ne_enclave_start_info;
 use nitro_cli::common::{NitroCliErrorEnum, NitroCliFailure, NitroCliResult};
 use nitro_cli::enclave_proc::cpu_info::CpuInfo;
 use nitro_cli::enclave_proc::resource_manager::{
@@ -190,7 +191,7 @@ impl CheckDmesg {
 
     /// Verify if dmesg number of lines changed from the last recorded line.
     pub fn expect_no_changes(&mut self) -> NitroCliResult<()> {
-        let checks = vec![
+        let checks = [
             "WARNING",
             "BUG",
             "ERROR",
@@ -201,12 +202,12 @@ impl CheckDmesg {
         ];
         let lines = self.get_dmesg_lines().unwrap();
 
-        for i in self.recorded_line..lines.len() {
-            let upper_line = lines[i].to_uppercase();
+        for line in lines.iter().skip(self.recorded_line) {
+            let upper_line = line.to_uppercase();
             for word in checks.iter() {
                 if upper_line.contains(&word.to_uppercase()) {
                     return Err(NitroCliFailure::new()
-                        .add_subaction(format!("Dmesg line: {} contains: {}", lines[i], word))
+                        .add_subaction(format!("Dmesg line: {} contains: {}", line, word))
                         .set_error_code(NitroCliErrorEnum::IoctlFailure)
                         .set_file_and_line(file!(), line!()));
                 }
@@ -264,8 +265,8 @@ mod test_dev_driver {
         let mut enclave = driver.create_enclave().unwrap();
 
         // Add invalid memory region.
-        let result = enclave.add_mem_region(EnclaveMemoryRegion::new(0, 0, 2 * MiB as u64));
-        assert_eq!(result.is_err(), true);
+        let result = enclave.add_mem_region(EnclaveMemoryRegion::new(0, 0, 2 * MiB));
+        assert!(result.is_err());
 
         // Create a memory region using hugetlbfs.
         let region = MemoryRegion::new(libc::MAP_HUGE_2MB).unwrap();
@@ -276,7 +277,7 @@ mod test_dev_driver {
             region.mem_addr() + 1,
             region.mem_size(),
         ));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Add wrongly sized memory region of 1 MiB.
         let result = enclave.add_mem_region(EnclaveMemoryRegion::new(
@@ -284,7 +285,7 @@ mod test_dev_driver {
             region.mem_addr(),
             region.mem_size() / 2,
         ));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Add wrongly sized memory region of double the memory size.
         let result = enclave.add_mem_region(EnclaveMemoryRegion::new(
@@ -292,7 +293,7 @@ mod test_dev_driver {
             region.mem_addr(),
             region.mem_size() * 2,
         ));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Add wrongly sized memory region of max value multiple of 2 MiB.
         let result = enclave.add_mem_region(EnclaveMemoryRegion::new(
@@ -300,7 +301,7 @@ mod test_dev_driver {
             region.mem_addr(),
             u64::max_value() - (2 * 1024 * 1024) + 1,
         ));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Add wrong memory region with address out of range.
         let result = enclave.add_mem_region(EnclaveMemoryRegion::new(
@@ -308,7 +309,7 @@ mod test_dev_driver {
             region.mem_addr() + region.mem_size(),
             region.mem_size(),
         ));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         let mut check_dmesg = CheckDmesg::new().expect("Failed to obtain dmesg object");
         check_dmesg
@@ -318,13 +319,13 @@ mod test_dev_driver {
         // Correctly add the memory region.
         let region = MemoryRegion::new(libc::MAP_HUGE_2MB).unwrap();
         let result = enclave.add_mem_region(EnclaveMemoryRegion::new_from(&region));
-        assert_eq!(result.is_err(), false);
+        assert!(result.is_ok());
 
         check_dmesg.expect_no_changes().unwrap();
 
         // Add the same memory region twice.
         let result = enclave.add_mem_region(EnclaveMemoryRegion::new_from(&region));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Add a memory region with invalid flags.
         let region = MemoryRegion::new(libc::MAP_HUGE_2MB).unwrap();
@@ -333,7 +334,7 @@ mod test_dev_driver {
             region.mem_addr(),
             region.mem_size(),
         ));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -344,7 +345,7 @@ mod test_dev_driver {
 
         // Add an invalid cpu id.
         let result = enclave.add_cpu(u32::max_value());
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         let mut candidates = cpu_info.get_cpu_candidates();
         // Instance does not have the appropriate number of cpus.
@@ -361,13 +362,13 @@ mod test_dev_driver {
 
         // Insert the first valid cpu id.
         let result = enclave.add_cpu(cpu_id);
-        assert_eq!(result.is_err(), false);
+        assert!(result.is_ok());
 
         check_dmesg.expect_no_changes().unwrap();
 
         // Try inserting the cpu twice.
         let result = enclave.add_cpu(cpu_id);
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         check_dmesg
             .record_current_line()
@@ -376,7 +377,7 @@ mod test_dev_driver {
         // Add all remaining cpus.
         for cpu in &candidates {
             let result = enclave.add_cpu(*cpu);
-            assert_eq!(result.is_err(), false);
+            assert!(result.is_ok());
         }
 
         check_dmesg.expect_no_changes().unwrap();
@@ -392,7 +393,7 @@ mod test_dev_driver {
 
         // Add an auto-chosen cpu from the pool.
         let result = enclave.add_cpu(0);
-        assert_eq!(result.is_err(), false);
+        assert!(result.is_ok());
 
         check_dmesg.expect_no_changes().unwrap();
 
@@ -403,14 +404,14 @@ mod test_dev_driver {
         // Add all remaining auto-chosen cpus.
         for _i in 0..candidates.len() {
             let result = enclave.add_cpu(0);
-            assert_eq!(result.is_err(), false);
+            assert!(result.is_ok());
         }
 
         check_dmesg.expect_no_changes().unwrap();
 
         // Add one more cpu than the maximum available in the pool.
         let result = enclave.add_cpu(0);
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -421,7 +422,7 @@ mod test_dev_driver {
 
         // Start enclave without resources.
         let result = enclave.start(EnclaveStartInfo::default());
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Allocate memory for the enclave.
         #[cfg(target_arch = "x86_64")]
@@ -453,12 +454,12 @@ mod test_dev_driver {
         // Add memory to the enclave.
         for region in &mut mem_regions {
             let result = enclave.add_mem_region(EnclaveMemoryRegion::new_from(region));
-            assert_eq!(result.is_err(), false);
+            assert!(result.is_ok());
         }
 
         // Start the enclave without cpus.
         let result = enclave.start(EnclaveStartInfo::default());
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         let cpu_info = CpuInfo::new().expect("Failed to obtain CpuInfo.");
         let candidates = cpu_info.get_cpu_candidates();
@@ -474,12 +475,12 @@ mod test_dev_driver {
 
         for cpu in &candidates {
             let result = enclave.add_cpu(*cpu);
-            assert_eq!(result.is_err(), false);
+            assert!(result.is_ok());
         }
 
         // Start enclave without memory.
         let result = enclave.start(EnclaveStartInfo::default());
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         drop(enclave);
 
@@ -488,12 +489,12 @@ mod test_dev_driver {
         // Add memory to the enclave.
         for region in &mut mem_regions {
             let result = enclave.add_mem_region(EnclaveMemoryRegion::new_from(region));
-            assert_eq!(result.is_err(), false);
+            assert!(result.is_ok());
         }
 
         // Add the first available cpu.
         let result = enclave.add_cpu(candidates[0]);
-        assert_eq!(result.is_err(), false);
+        assert!(result.is_ok());
 
         // Start without cpu pair.
         #[cfg(target_arch = "aarch64")]
@@ -505,7 +506,7 @@ mod test_dev_driver {
 
         let result = enclave.start(EnclaveStartInfo::default());
         #[cfg(target_arch = "x86_64")]
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
         #[cfg(target_arch = "aarch64")]
         assert_eq!(result.is_err(), false);
 
@@ -533,31 +534,35 @@ mod test_dev_driver {
 
         // Add the first cpu pair.
         let result = enclave.add_cpu(candidates[1]);
-        assert_eq!(result.is_err(), false);
+        assert!(result.is_ok());
 
         // Start with an invalid flag.
-        let mut enclave_start_info = EnclaveStartInfo::default();
-        enclave_start_info.flags = 1234;
+        let enclave_start_info = ne_enclave_start_info {
+            flags: 1234,
+            ..Default::default()
+        };
         let result = enclave.start(enclave_start_info);
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Start with an invalid CID.
-        let mut enclave_start_info = EnclaveStartInfo::default();
-        enclave_start_info.enclave_cid = VMADDR_CID_LOCAL as u64;
+        let mut enclave_start_info = ne_enclave_start_info {
+            enclave_cid: VMADDR_CID_LOCAL as u64,
+            ..Default::default()
+        };
         let result = enclave.start(enclave_start_info);
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         enclave_start_info.enclave_cid = VMADDR_CID_HOST as u64;
         let result = enclave.start(enclave_start_info);
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         enclave_start_info.enclave_cid = u32::max_value() as u64;
         let result = enclave.start(enclave_start_info);
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         enclave_start_info.enclave_cid = u32::max_value() as u64 + 1234_u64;
         let result = enclave.start(enclave_start_info);
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         let mut check_dmesg = CheckDmesg::new().expect("Failed to obtain dmesg object");
         check_dmesg
@@ -566,33 +571,33 @@ mod test_dev_driver {
 
         // Start the enclave.
         let result = enclave.start(EnclaveStartInfo::default());
-        assert_eq!(result.is_err(), false);
+        assert!(result.is_ok());
 
         check_dmesg.expect_no_changes().unwrap();
 
         // Try starting an already running enclave.
         let result = enclave.start(EnclaveStartInfo::default());
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Try adding an already added memory region
         // after the enclave start.
         let result = enclave.add_mem_region(EnclaveMemoryRegion::new_from(&mem_regions[0]));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Try adding a new memory region after the enclave start.
         let result = enclave.add_mem_region(EnclaveMemoryRegion::new_from(
             &MemoryRegion::new(libc::MAP_HUGE_2MB).unwrap(),
         ));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Try adding an already added vcpu after enclave start.
         let result = enclave.add_cpu(candidates[0]);
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
 
         // Try adding a new vcpu after enclave start.
         if candidates.len() >= 3 {
             let result = enclave.add_cpu(candidates[2]);
-            assert_eq!(result.is_err(), true);
+            assert!(result.is_err());
         }
     }
 
@@ -648,18 +653,18 @@ mod test_dev_driver {
             // Add memory to the enclave.
             for region in &mut mem_regions {
                 let result = enclave.add_mem_region(EnclaveMemoryRegion::new_from(region));
-                assert_eq!(result.is_err(), false);
+                assert!(result.is_ok());
             }
 
             // Add cpus to the enclave.
             for cpu in &candidates {
                 let result = enclave.add_cpu(*cpu);
-                assert_eq!(result.is_err(), false);
+                assert!(result.is_ok());
             }
 
             // Start and stop the enclave
             let result = enclave.start(EnclaveStartInfo::default());
-            assert_eq!(result.is_err(), false);
+            assert!(result.is_ok());
         }
     }
 }

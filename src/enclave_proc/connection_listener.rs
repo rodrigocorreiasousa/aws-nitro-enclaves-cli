@@ -320,7 +320,7 @@ mod tests {
     const THREADS_STR: &str = "Threads:";
     const TMP_DIR: &str = "./npe";
 
-    fn unset_envvar(varname: &String) {
+    fn unset_envvar(varname: &str) {
         unsafe { libc::unsetenv(varname.as_ptr() as *const c_char) };
     }
 
@@ -393,7 +393,7 @@ mod tests {
                 &mut cli_evt,
             );
 
-            assert_eq!(result.is_err(), true);
+            assert!(result.is_err());
         }
     }
 
